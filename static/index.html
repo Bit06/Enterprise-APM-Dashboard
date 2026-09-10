@@ -1,0 +1,844 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Enterprise APM Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+<style>
+  :root {
+    --bg: #0f1420;
+    --panel: #171e2e;
+    --border: #2a3348;
+    --text: #e8ecf4;
+    --muted: #8a94ab;
+    --up: #2ecc71;
+    --warn: #f5a623;
+    --down: #e74c3c;
+    --unknown: #5a6478;
+    --accent: #4f8cff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+  header {
+    padding: 20px 28px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  header h1 { font-size: 18px; margin: 0; font-weight: 600; }
+  header .sub { color: var(--muted); font-size: 13px; margin-top: 2px; }
+  main { padding: 24px 28px; max-width: 1200px; margin: 0 auto; }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 14px;
+    margin-bottom: 32px;
+  }
+  #all-graphs-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+  }
+  @media (max-width: 900px) {
+    #all-graphs-grid { grid-template-columns: 1fr; }
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    cursor: pointer;
+    transition: border-color 0.15s;
+  }
+  .card:hover { border-color: var(--accent); }
+  .card.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .card-top { display: flex; justify-content: space-between; align-items: flex-start; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 4px; flex-shrink: 0; }
+  .dot.up { background: var(--up); box-shadow: 0 0 8px var(--up); }
+  .dot.degraded { background: var(--warn); box-shadow: 0 0 8px var(--warn); }
+  .dot.down { background: var(--down); box-shadow: 0 0 8px var(--down); }
+  .dot.unknown { background: var(--unknown); }
+  .name { font-weight: 600; font-size: 14.5px; }
+  .env { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .metrics { display: flex; gap: 16px; margin-top: 12px; font-size: 12.5px; }
+  .metric-label { color: var(--muted); }
+  .metric-value { font-weight: 600; margin-top: 2px; }
+
+  h2 { font-size: 14px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0 12px; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 20px; margin-bottom: 24px; }
+  .time-btn { background: var(--bg); color: var(--muted); border: 1px solid var(--border); padding: 4px 10px; border-radius: 4px; font-size: 12px; cursor: pointer; transition: all 0.2s; }
+  .time-btn:hover { color: var(--text); border-color: var(--muted); }
+  .time-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; text-transform: uppercase; }
+  .sev-critical { color: var(--down); font-weight: 600; }
+  .sev-warning { color: var(--warn); font-weight: 600; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 11px; }
+  .badge.resolved { background: rgba(46,204,113,0.15); color: var(--up); }
+  .badge.open { background: rgba(231,76,60,0.15); color: var(--down); }
+  .empty { color: var(--muted); font-size: 13px; padding: 8px 0; }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Enterprise API &amp; Application Performance Monitoring</h1>
+    <div class="sub" id="last-refresh">Loading…</div>
+  </div>
+</header>
+
+<main>
+  <h2>Service Health</h2>
+  <div class="grid" id="status-grid"></div>
+
+  <div class="panel">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:10px;">
+      <h2 id="chart-title" style="margin:0;">Response Time (select a service above)</h2>
+      <div id="main-time-filters" style="display:flex; gap:8px;">
+        <button class="time-btn" data-hours="0.25">15m</button>
+        <button class="time-btn" data-hours="0.5">30m</button>
+        <button class="time-btn active" data-hours="1">1h</button>
+        <button class="time-btn" data-hours="6">6h</button>
+        <button class="time-btn" data-hours="24">24h</button>
+        <button class="time-btn" data-hours="168">7d</button>
+      </div>
+    </div>
+    <canvas id="response-chart" height="80"></canvas>
+  </div>
+
+  <div class="panel" id="resource-panel" style="display:none;">
+    <h2 style="margin:0 0 12px; color:var(--muted); font-size:12px; letter-spacing:0.05em; text-transform:uppercase;">Resource Utilization</h2>
+    <div style="display:flex; flex-direction:column; gap:20px;">
+      <div style="height:120px; position:relative;">
+        <canvas id="cpu-chart"></canvas>
+      </div>
+      <div style="height:120px; position:relative;">
+        <canvas id="memory-chart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+      <h2 style="margin:0;">All Service Graphs</h2>
+      <select id="mini-graphs-time" style="padding:4px 8px; border-radius:4px; border:1px solid var(--border); background:var(--bg); color:var(--text); font-size:12px;" onchange="renderAllGraphs()">
+        <option value="0.083">Last 5 Minutes</option>
+        <option value="0.5">Last 30 Minutes</option>
+        <option value="1" selected>Last 1 Hour</option>
+        <option value="6">Last 6 Hours</option>
+        <option value="12">Last 12 Hours</option>
+        <option value="24">Last 24 Hours</option>
+      </select>
+    </div>
+    <div class="grid" id="all-graphs-grid"></div>
+  </div>
+
+  <div class="panel">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:10px;">
+      <h2 style="margin:0;">Recent Alerts</h2>
+      <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+        <input type="text" id="alert-search" placeholder="Search message..." style="padding:6px 10px; border-radius:4px; border:1px solid var(--border); background:var(--bg); color:var(--text); font-size:13px;" oninput="drawAlerts()">
+        
+        <select id="filter-service" style="padding:6px 10px; border-radius:4px; border:1px solid var(--border); background:var(--bg); color:var(--text); font-size:13px;" onchange="drawAlerts()">
+          <option value="">All Services</option>
+        </select>
+        
+        <select id="filter-type" style="padding:6px 10px; border-radius:4px; border:1px solid var(--border); background:var(--bg); color:var(--text); font-size:13px;" onchange="drawAlerts()">
+          <option value="">All Types</option>
+        </select>
+        
+        <select id="filter-severity" style="padding:6px 10px; border-radius:4px; border:1px solid var(--border); background:var(--bg); color:var(--text); font-size:13px;" onchange="drawAlerts()">
+          <option value="">All Severities</option>
+          <option value="critical">Critical</option>
+          <option value="warning">Warning</option>
+          <option value="info">Info</option>
+        </select>
+        
+        <select id="sort-time" style="padding:6px 10px; border-radius:4px; border:1px solid var(--border); background:var(--bg); color:var(--text); font-size:13px;" onchange="drawAlerts()">
+          <option value="desc">Newest First</option>
+          <option value="asc">Oldest First</option>
+        </select>
+      </div>
+    </div>
+    <table id="alerts-table">
+      <thead>
+        <tr><th>Service</th><th>Type</th><th>Severity</th><th>Message</th><th>Triggered</th><th>Status</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+    <div class="empty" id="alerts-empty" style="display:none;">No alerts recorded yet.</div>
+    <div style="margin-top:16px; display:flex; gap:16px; justify-content:flex-end; align-items:center; font-size:13px;">
+      <select id="alert-page-size" style="padding:4px 8px; border-radius:4px; border:1px solid var(--border); background:var(--bg); color:var(--text); font-size:13px;" onchange="alertPage=1; drawAlerts()">
+        <option value="5">5 per page</option>
+        <option value="10">10 per page</option>
+        <option value="15" selected>15 per page</option>
+        <option value="50">50 per page</option>
+      </select>
+      <div id="alert-pagination" style="display:flex; gap:10px;"></div>
+    </div>
+  </div>
+</main>
+
+<script>
+const API = "";
+let selectedEndpointId = null;
+let chart = null;
+let endpointsById = {};
+let currentFetchHours = 24;
+let currentZoomHours = 1;
+let isUserZooming = false;
+let lastEndpointId = null;
+
+document.addEventListener('click', (e) => {
+  if (e.target.classList.contains('time-btn') && e.target.closest('#main-time-filters')) {
+    document.querySelectorAll('#main-time-filters .time-btn').forEach(b => b.classList.remove('active'));
+    e.target.classList.add('active');
+    
+    currentZoomHours = parseFloat(e.target.dataset.hours);
+    isUserZooming = false;
+    
+    if (currentZoomHours > 24 && currentFetchHours !== 168) {
+      currentFetchHours = 168;
+      renderChart();
+    } else if (currentZoomHours <= 24 && currentFetchHours !== 24) {
+      currentFetchHours = 24;
+      renderChart();
+    } else {
+      applyZoomToMainCharts();
+    }
+  }
+});
+
+function applyZoomToMainCharts() {
+  if (!chart || !chart.data.history) return;
+  const history = chart.data.history;
+  const labels = chart.data.labels;
+  
+  let minIdx = 0;
+  if (history.length > 0) {
+    const lastTs = new Date(history[history.length - 1].timestamp).getTime();
+    for (let i = history.length - 1; i >= 0; i--) {
+      if (lastTs - new Date(history[i].timestamp).getTime() >= currentZoomHours * 3600000) {
+        minIdx = i;
+        break;
+      }
+    }
+  }
+
+  if (chart.resetZoom) chart.resetZoom('none');
+  chart.options.scales.x.min = minIdx;
+  chart.options.scales.x.max = labels.length - 1;
+  chart.update('none');
+
+  if (window.cpuChart) {
+    if (window.cpuChart.resetZoom) window.cpuChart.resetZoom('none');
+    window.cpuChart.options.scales.x.min = minIdx;
+    window.cpuChart.options.scales.x.max = history.length - 1;
+    window.cpuChart.update('none');
+  }
+
+  if (window.memoryChart) {
+    if (window.memoryChart.resetZoom) window.memoryChart.resetZoom('none');
+    window.memoryChart.options.scales.x.min = minIdx;
+    window.memoryChart.options.scales.x.max = history.length - 1;
+    window.memoryChart.update('none');
+  }
+}
+
+function syncTimeButtonsWithZoom(c) {
+  isUserZooming = true;
+  const minIdx = c.scales.x.min;
+  const maxIdx = c.scales.x.max;
+  
+  if (c.canvas.id === 'response-chart') {
+    if (window.cpuChart) {
+      window.cpuChart.options.scales.x.min = minIdx;
+      window.cpuChart.options.scales.x.max = window.cpuChart.data.history ? Math.min(maxIdx, window.cpuChart.data.history.length - 1) : maxIdx;
+      window.cpuChart.update('none');
+    }
+    if (window.memoryChart) {
+      window.memoryChart.options.scales.x.min = minIdx;
+      window.memoryChart.options.scales.x.max = window.memoryChart.data.history ? Math.min(maxIdx, window.memoryChart.data.history.length - 1) : maxIdx;
+      window.memoryChart.update('none');
+    }
+  } else {
+    if (chart) {
+      chart.options.scales.x.min = minIdx;
+      chart.options.scales.x.max = chart.data.labels ? Math.min(maxIdx, chart.data.labels.length - 1) : maxIdx;
+      chart.update('none');
+    }
+    if (c.canvas.id === 'cpu-chart' && window.memoryChart) {
+      window.memoryChart.options.scales.x.min = minIdx;
+      window.memoryChart.options.scales.x.max = maxIdx;
+      window.memoryChart.update('none');
+    }
+    if (c.canvas.id === 'memory-chart' && window.cpuChart) {
+      window.cpuChart.options.scales.x.min = minIdx;
+      window.cpuChart.options.scales.x.max = maxIdx;
+      window.cpuChart.update('none');
+    }
+  }
+
+  if (minIdx === undefined || maxIdx === undefined || !c.data.history) return;
+  
+  const iMin = Math.max(0, Math.floor(minIdx));
+  const iMax = Math.min(c.data.history.length-1, Math.ceil(maxIdx));
+  if (iMin >= iMax) return;
+
+  const tMin = new Date(c.data.history[iMin].timestamp).getTime();
+  const tMax = new Date(c.data.history[iMax].timestamp).getTime();
+  const visibleHours = (tMax - tMin) / 3600000;
+  
+  const buttons = document.querySelectorAll('#main-time-filters .time-btn');
+  let closestBtn = null;
+  let minDiff = Infinity;
+  buttons.forEach(b => {
+    const h = parseFloat(b.dataset.hours);
+    const diff = Math.abs(h - visibleHours);
+    if (diff < minDiff) { minDiff = diff; closestBtn = b; }
+  });
+  if (closestBtn) {
+    buttons.forEach(b => b.classList.remove('active'));
+    closestBtn.classList.add('active');
+  }
+}
+
+async function fetchJSON(url) {
+  const res = await fetch(API + url);
+  if (!res.ok) throw new Error("Request failed: " + url);
+  return res.json();
+}
+
+function healthLabel(h) {
+  return { up: "Operational", degraded: "Degraded", down: "Down", unknown: "Unknown" }[h] || h;
+}
+
+async function renderStatusGrid() {
+  const statuses = await fetchJSON("/api/status");
+  const grid = document.getElementById("status-grid");
+  grid.innerHTML = "";
+  endpointsById = {};
+
+  statuses.forEach(s => {
+    endpointsById[s.endpoint_id] = s;
+    const card = document.createElement("div");
+    card.className = "card" + (s.endpoint_id === selectedEndpointId ? " selected" : "");
+    card.onclick = () => { selectedEndpointId = s.endpoint_id; renderChart(); renderStatusGrid(); };
+    card.innerHTML = `
+      <div class="card-top">
+        <div>
+          <div class="name">${s.name}</div>
+          <div class="env">${s.environment}</div>
+        </div>
+        <div class="dot ${s.health}"></div>
+      </div>
+      <div class="metrics">
+        <div>
+          <div class="metric-label">Status</div>
+          <div class="metric-value">${healthLabel(s.health)}</div>
+        </div>
+        <div>
+          <div class="metric-label">Response</div>
+          <div class="metric-value">${s.response_time_ms ? Math.round(s.response_time_ms) + "ms" : "—"}</div>
+        </div>
+        <div>
+          <div class="metric-label">24h Avail.</div>
+          <div class="metric-value">${s.availability_pct_24h}%</div>
+        </div>
+      </div>
+    `;
+    grid.appendChild(card);
+  });
+
+  if (!selectedEndpointId && statuses.length) {
+    selectedEndpointId = statuses[0].endpoint_id;
+    renderChart();
+  }
+
+  document.getElementById("last-refresh").textContent =
+    "Last updated " + new Date().toLocaleTimeString();
+}
+
+async function renderChart() {
+  if (!selectedEndpointId) return;
+  const ep = endpointsById[selectedEndpointId];
+  document.getElementById("chart-title").textContent =
+    "Response Time (ML Enhanced) — " + (ep ? ep.name : "");
+
+  const history = await fetchJSON(`/api/history/${selectedEndpointId}?hours=${currentFetchHours}`);
+  const labels = history.map(h => new Date(h.timestamp).toLocaleTimeString());
+  
+  const data = history.map(h => h.is_available ? h.response_time_ms : 0);
+  const pointColors = history.map(h => !h.is_available ? "#e74c3c" : (h.is_anomaly ? "#f5a623" : "transparent"));
+  const pointRadii = history.map(h => (!h.is_available || h.is_anomaly) ? 4 : 0);
+
+  // Fetch forecast
+  let forecastData = Array(data.length).fill(null);
+  try {
+    const forecast = await fetchJSON(`/api/forecast/${selectedEndpointId}?steps=10`);
+    const fData = forecast.forecasted_response_times;
+    if (fData && fData.length > 0 && history.length > 0) {
+      const lastTime = new Date(history[history.length-1].timestamp);
+      for (let i = 0; i < fData.length; i++) {
+        lastTime.setMinutes(lastTime.getMinutes() + 1);
+        labels.push(lastTime.toLocaleTimeString() + " (Pred)");
+      }
+      
+      // Connect forecast to last known valid data point
+      forecastData[data.length - 1] = data[data.length - 1];
+      forecastData = forecastData.concat(fData);
+    }
+  } catch (e) {
+    console.warn("Could not load forecast", e);
+  }
+
+  const ctx = document.getElementById("response-chart").getContext("2d");
+  
+  let minIdx = 0;
+  if (history.length > 0) {
+    const lastTs = new Date(history[history.length - 1].timestamp).getTime();
+    for (let i = history.length - 1; i >= 0; i--) {
+      if (lastTs - new Date(history[i].timestamp).getTime() >= currentZoomHours * 3600000) {
+        minIdx = i;
+        break;
+      }
+    }
+  }
+
+  const chartOptions = {
+    responsive: true,
+    plugins: { 
+      legend: { labels: { color: "#e8ecf4" } },
+      zoom: { 
+        limits: { x: { min: 0, max: 'original' } },
+        pan: { enabled: true, mode: 'x', onPan: ({chart}) => syncTimeButtonsWithZoom(chart), onPanComplete: ({chart}) => syncTimeButtonsWithZoom(chart) }, 
+        zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x', onZoom: ({chart}) => syncTimeButtonsWithZoom(chart), onZoomComplete: ({chart}) => syncTimeButtonsWithZoom(chart) } 
+      }
+    },
+    scales: {
+      x: { min: (!isUserZooming && chart && lastEndpointId === selectedEndpointId) ? minIdx : undefined, max: (!isUserZooming && chart && lastEndpointId === selectedEndpointId) ? labels.length - 1 : undefined, ticks: { color: "#8a94ab", maxTicksLimit: 8 }, grid: { color: "#2a3348" } },
+      y: { ticks: { color: "#8a94ab" }, grid: { color: "#2a3348" } }
+    }
+  };
+
+  if (chart && lastEndpointId === selectedEndpointId) {
+    chart.data.labels = labels;
+    chart.data.history = history;
+    chart.data.datasets[0].data = data;
+    chart.data.datasets[0].pointBackgroundColor = pointColors;
+    chart.data.datasets[0].pointRadius = pointRadii;
+    chart.data.datasets[2].data = forecastData;
+    
+    chart.update('none');
+    if (!isUserZooming) {
+      applyZoomToMainCharts();
+    }
+  } else {
+    lastEndpointId = selectedEndpointId;
+    if (chart) chart.destroy();
+    
+    chartOptions.scales.x.min = minIdx;
+    chartOptions.scales.x.max = labels.length - 1;
+
+    chart = new Chart(ctx, {
+      type: "line",
+      data: {
+        labels,
+        history,
+        datasets: [
+          {
+            label: "Response time (ms)",
+            data: data,
+            borderColor: "#4f8cff",
+            backgroundColor: "rgba(79,140,255,0.1)",
+            fill: true,
+            tension: 0.3,
+            pointRadius: pointRadii,
+            pointBackgroundColor: pointColors,
+            pointBorderColor: "transparent",
+            segment: {
+              borderColor: ctx => {
+                const h0 = history[ctx.p0DataIndex];
+                const h1 = history[ctx.p1DataIndex];
+                if (h0 && h1 && (!h0.is_available || !h1.is_available)) return '#e74c3c';
+                return '#4f8cff';
+              },
+              backgroundColor: ctx => {
+                const h0 = history[ctx.p0DataIndex];
+                const h1 = history[ctx.p1DataIndex];
+                if (h0 && h1 && (!h0.is_available || !h1.is_available)) return 'rgba(231,76,60,0.2)';
+                return 'rgba(79,140,255,0.1)';
+              }
+            }
+          },
+          {
+            label: "Downtime",
+            data: [],
+            borderColor: "#e74c3c",
+            backgroundColor: "rgba(231,76,60,0.2)",
+            borderWidth: 2,
+            pointRadius: 4,
+            pointBackgroundColor: "#e74c3c"
+          },
+          {
+            label: "ML Forecast",
+            data: forecastData,
+            borderColor: "#f5a623",
+            borderDash: [5, 5],
+            fill: false,
+            tension: 0.3,
+            pointRadius: 0,
+          }
+        ]
+      },
+      options: chartOptions
+    });
+  }
+
+  // Render Resource Utilization Charts
+  try {
+    const resourceLabels = history.map(h => new Date(h.timestamp).toLocaleTimeString());
+    const cpuData = history.map(h => h.server_cpu_percent !== null ? h.server_cpu_percent : null);
+    const memoryData = history.map(h => h.server_memory_percent !== null ? h.server_memory_percent : null);
+    
+    const latestCpu = cpuData.length > 0 && cpuData[cpuData.length - 1] !== null ? cpuData[cpuData.length - 1] + "%" : "N/A";
+    const latestMem = memoryData.length > 0 && memoryData[memoryData.length - 1] !== null ? memoryData[memoryData.length - 1] + "%" : "N/A";
+
+    document.getElementById("resource-panel").style.display = "block";
+    
+    const cpuCtx = document.getElementById("cpu-chart").getContext("2d");
+    if (window.cpuChart && lastEndpointId === selectedEndpointId) {
+        window.cpuChart.data.labels = resourceLabels;
+        window.cpuChart.data.history = history;
+        window.cpuChart.data.datasets[0].data = cpuData;
+        window.cpuChart.data.datasets[0].label = `Server CPU (${latestCpu})`;
+        window.cpuChart.update('none');
+    } else {
+        if (window.cpuChart) window.cpuChart.destroy();
+        window.cpuChart = new Chart(cpuCtx, {
+          type: "line",
+          data: {
+            labels: resourceLabels,
+            history: history,
+            datasets: [{
+              label: `Server CPU (${latestCpu})`,
+              data: cpuData,
+              borderColor: "#2ecc71",
+              backgroundColor: "rgba(46,204,113,0.1)",
+              fill: true,
+              tension: 0.3,
+              pointRadius: 0
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { 
+              legend: { display: true, position: 'top', labels: { color: "#a0a0a0", usePointStyle: true, boxWidth: 8 } },
+              zoom: { 
+                limits: { x: { min: 0, max: 'original' } },
+                pan: { enabled: true, mode: 'x', onPan: ({chart}) => syncTimeButtonsWithZoom(chart), onPanComplete: ({chart}) => syncTimeButtonsWithZoom(chart) }, 
+                zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x', onZoom: ({chart}) => syncTimeButtonsWithZoom(chart), onZoomComplete: ({chart}) => syncTimeButtonsWithZoom(chart) } 
+              }
+            },
+            scales: {
+              x: { display: false, min: minIdx, max: history.length - 1 },
+              y: { min: 0, max: 100, grid: { color: "rgba(255,255,255,0.05)" }, ticks: { color: "#a0a0a0", stepSize: 25 } }
+            }
+          }
+        });
+    }
+
+    const memoryCtx = document.getElementById("memory-chart").getContext("2d");
+    if (window.memoryChart && lastEndpointId === selectedEndpointId) {
+        window.memoryChart.data.labels = resourceLabels;
+        window.memoryChart.data.history = history;
+        window.memoryChart.data.datasets[0].data = memoryData;
+        window.memoryChart.data.datasets[0].label = `Server Memory (${latestMem})`;
+        window.memoryChart.update('none');
+    } else {
+        if (window.memoryChart) window.memoryChart.destroy();
+        window.memoryChart = new Chart(memoryCtx, {
+          type: "line",
+          data: {
+            labels: resourceLabels,
+            history: history,
+            datasets: [{
+              label: `Server Memory (${latestMem})`,
+              data: memoryData,
+              borderColor: "#9b59b6",
+              backgroundColor: "rgba(155,89,182,0.1)",
+              fill: true,
+              tension: 0.3,
+              pointRadius: 0
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { 
+              legend: { display: true, position: 'top', labels: { color: "#a0a0a0", usePointStyle: true, boxWidth: 8 } },
+              zoom: { 
+                limits: { x: { min: 0, max: 'original' } },
+                pan: { enabled: true, mode: 'x', onPan: ({chart}) => syncTimeButtonsWithZoom(chart), onPanComplete: ({chart}) => syncTimeButtonsWithZoom(chart) }, 
+                zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x', onZoom: ({chart}) => syncTimeButtonsWithZoom(chart), onZoomComplete: ({chart}) => syncTimeButtonsWithZoom(chart) } 
+              }
+            },
+            scales: {
+              x: { display: true, min: minIdx, max: history.length - 1, grid: { color: "rgba(255,255,255,0.05)" }, ticks: { color: "#a0a0a0", maxTicksLimit: 8 } },
+              y: { min: 0, max: 100, grid: { color: "rgba(255,255,255,0.05)" }, ticks: { color: "#a0a0a0", stepSize: 25 } }
+            }
+          }
+        });
+    }
+  } catch (err) {
+    console.error("Failed to render resource charts", err);
+  }
+}
+
+let allAlerts = [];
+let alertPage = 1;
+
+async function renderAlerts() {
+  allAlerts = await fetchJSON("/api/alerts");
+  
+  const serviceSet = new Set();
+  const typeSet = new Set();
+  allAlerts.forEach(a => {
+    const ep = endpointsById[a.endpoint_id];
+    if (ep) serviceSet.add(ep.name);
+    typeSet.add(a.alert_type);
+  });
+  
+  const selSvc = document.getElementById("filter-service");
+  selSvc.innerHTML = '<option value="">All Services</option>';
+  [...serviceSet].sort().forEach(svc => { selSvc.innerHTML += `<option value="${svc}">${svc}</option>`; });
+  
+  const selType = document.getElementById("filter-type");
+  selType.innerHTML = '<option value="">All Types</option>';
+  [...typeSet].sort().forEach(t => { selType.innerHTML += `<option value="${t}">${t}</option>`; });
+  
+  drawAlerts();
+}
+
+function drawAlerts() {
+  const tbody = document.querySelector("#alerts-table tbody");
+  tbody.innerHTML = "";
+  
+  const search = document.getElementById("alert-search").value.toLowerCase();
+  const fSvc = document.getElementById("filter-service").value;
+  const fType = document.getElementById("filter-type").value;
+  const fSev = document.getElementById("filter-severity").value;
+  const sTime = document.getElementById("sort-time").value;
+  const perPage = parseInt(document.getElementById("alert-page-size").value);
+  
+  let filtered = allAlerts.filter(a => {
+    const ep = endpointsById[a.endpoint_id];
+    const epName = ep ? ep.name : "";
+    
+    if (search && !a.message.toLowerCase().includes(search) && !epName.toLowerCase().includes(search)) return false;
+    if (fSvc && epName !== fSvc) return false;
+    if (fType && a.alert_type !== fType) return false;
+    if (fSev && a.severity !== fSev) return false;
+    return true;
+  });
+  
+  filtered.sort((a, b) => {
+    if (sTime === "asc") return new Date(a.triggered_at) - new Date(b.triggered_at);
+    return new Date(b.triggered_at) - new Date(a.triggered_at);
+  });
+  
+  const totalPages = Math.ceil(filtered.length / perPage);
+  if (alertPage > totalPages) alertPage = totalPages || 1;
+  
+  const start = (alertPage - 1) * perPage;
+  const paged = filtered.slice(start, start + perPage);
+  
+  document.getElementById("alerts-empty").style.display = filtered.length ? "none" : "block";
+  
+  paged.forEach(a => {
+    const ep = endpointsById[a.endpoint_id];
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${ep ? ep.name : "Endpoint #" + a.endpoint_id}</td>
+      <td>${a.alert_type}</td>
+      <td class="sev-${a.severity}">${a.severity}</td>
+      <td>${a.message}</td>
+      <td>${new Date(a.triggered_at).toLocaleString()}</td>
+      <td><span class="badge ${a.resolved_at ? "resolved" : "open"}">${a.resolved_at ? "Resolved" : "Open"}</span></td>
+    `;
+    tbody.appendChild(tr);
+  });
+  
+  const pag = document.getElementById("alert-pagination");
+  pag.innerHTML = "";
+  if (totalPages > 1) {
+    const prev = document.createElement("button");
+    prev.textContent = "Prev";
+    prev.disabled = alertPage === 1;
+    prev.onclick = () => { alertPage--; drawAlerts(); };
+    
+    const next = document.createElement("button");
+    next.textContent = "Next";
+    next.disabled = alertPage === totalPages;
+    next.onclick = () => { alertPage++; drawAlerts(); };
+    
+    const info = document.createElement("span");
+    info.textContent = `Page ${alertPage} of ${totalPages}`;
+    info.style.alignSelf = "center";
+    
+    [prev, next].forEach(b => {
+      b.style.background = "var(--panel)"; b.style.color = "var(--text)";
+      b.style.border = "1px solid var(--border)"; b.style.padding = "4px 10px";
+      b.style.borderRadius = "4px"; b.style.cursor = b.disabled ? "not-allowed" : "pointer";
+    });
+    
+    pag.appendChild(prev);
+    pag.appendChild(info);
+    pag.appendChild(next);
+  }
+}
+
+const allCharts = {};
+async function renderAllGraphs() {
+  const grid = document.getElementById("all-graphs-grid");
+  const endpointIds = Object.keys(endpointsById);
+  
+  endpointIds.forEach(id => {
+    if (!document.getElementById("mini-chart-container-" + id)) {
+      const container = document.createElement("div");
+      container.className = "card";
+      container.id = "mini-chart-container-" + id;
+      container.style.cursor = "default";
+      container.innerHTML = `<div class="name" style="margin-bottom:8px">${endpointsById[id].name}</div><canvas id="mini-chart-${id}" height="200"></canvas>`;
+      grid.appendChild(container);
+    }
+  });
+
+  const miniHours = document.getElementById("mini-graphs-time") ? document.getElementById("mini-graphs-time").value : 1;
+  await Promise.all(endpointIds.map(async (id) => {
+    try {
+      const history = await fetchJSON(`/api/history/${id}?hours=${miniHours}`);
+      const labels = history.map(h => new Date(h.timestamp).toLocaleTimeString());
+      
+      const data = history.map(h => h.is_available ? h.response_time_ms : 0);
+      const pointColors = history.map(h => !h.is_available ? "#e74c3c" : (h.is_anomaly ? "#f5a623" : "transparent"));
+      const pointRadii = history.map(h => (!h.is_available || h.is_anomaly) ? 3 : 0);
+
+      let forecastData = Array(data.length).fill(null);
+      try {
+        const forecast = await fetchJSON(`/api/forecast/${id}?steps=10`);
+        const fData = forecast.forecasted_response_times;
+        if (fData && fData.length > 0 && history.length > 0) {
+          const lastTime = new Date(history[history.length-1].timestamp);
+          for (let i = 0; i < fData.length; i++) {
+            lastTime.setMinutes(lastTime.getMinutes() + 1);
+            labels.push(lastTime.toLocaleTimeString() + " (Pred)");
+          }
+          forecastData[data.length - 1] = data[data.length - 1];
+          forecastData = forecastData.concat(fData);
+        }
+      } catch (e) {}
+
+      const ctx = document.getElementById("mini-chart-" + id).getContext("2d");
+      if (allCharts[id]) allCharts[id].destroy();
+      
+      allCharts[id] = new Chart(ctx, {
+        type: "line",
+        data: {
+          labels,
+          datasets: [
+            {
+              data: data,
+              borderColor: "#4f8cff",
+              backgroundColor: "rgba(79,140,255,0.1)",
+              fill: true,
+              tension: 0.3,
+              pointRadius: pointRadii,
+              pointBackgroundColor: pointColors,
+              pointBorderColor: "transparent",
+              segment: {
+                borderColor: ctx => {
+                  const h0 = history[ctx.p0DataIndex];
+                  const h1 = history[ctx.p1DataIndex];
+                  if (h0 && h1 && (!h0.is_available || !h1.is_available)) return '#e74c3c';
+                  return '#4f8cff';
+                },
+                backgroundColor: ctx => {
+                  const h0 = history[ctx.p0DataIndex];
+                  const h1 = history[ctx.p1DataIndex];
+                  if (h0 && h1 && (!h0.is_available || !h1.is_available)) return 'rgba(231,76,60,0.2)';
+                  return 'rgba(79,140,255,0.1)';
+                }
+              }
+            },
+            {
+              label: "ML Forecast",
+              data: forecastData,
+              borderColor: "#f5a623",
+              borderDash: [5, 5],
+              fill: false,
+              tension: 0.3,
+              pointRadius: 0,
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { display: true, ticks: { color: "#8a94ab", maxTicksLimit: 6 }, grid: { color: "#2a3348" } },
+            y: { display: true, ticks: { color: "#8a94ab" }, grid: { color: "#2a3348" }, min: 0 }
+          }
+        }
+      });
+    } catch (e) {
+      console.warn("Mini chart error", e);
+    }
+  }));
+}
+
+async function refreshAll() {
+  try {
+    await renderStatusGrid();
+  } catch (e) {
+    console.error("Grid error:", e);
+  }
+  
+  try {
+    await renderChart();
+  } catch (e) {
+    console.error("Chart error:", e);
+  }
+
+  try {
+    await renderAllGraphs();
+  } catch (e) {
+    console.error("All graphs error:", e);
+  }
+  
+  try {
+    await renderAlerts();
+  } catch (e) {
+    console.error("Alerts error:", e);
+  }
+}
+
+refreshAll();
+setInterval(refreshAll, 15000); // poll every 15s
+</script>
+
+</body>
+</html>
