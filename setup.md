@@ -1,8 +1,6 @@
-# Enterprise APM Dashboard - Setup Guide
+﻿# Enterprise APM System - Setup & Demo Guide
 
-Welcome to the Enterprise APM Dashboard! This system includes a Python FastAPI backend, a background telemetry scheduler, and an HTML/JS frontend dashboard. 
-
-Follow these instructions to download and run the system on your own machine or server.
+Follow these instructions to download, install, and run the complete APM Demonstration Environment on your local machine.
 
 ## 1. Prerequisites
 
@@ -15,68 +13,78 @@ Before you begin, ensure you have the following installed on your system:
 
 Open your computer's terminal (Command Prompt or PowerShell on Windows, Terminal on Mac/Linux) and run the following command to download the folder from GitHub:
 
-```bash
+`ash
 git clone https://github.com/Bit06/Enterprise-APM-Dashboard.git
-```
+`
 
 Once downloaded, navigate into the project folder:
-```bash
+`ash
 cd Enterprise-APM-Dashboard
-```
+`
 
 ## 3. Set Up the Virtual Environment
 
 It is highly recommended to use a Python virtual environment to install the required dependencies so they do not conflict with other software on your computer.
 
 **For Windows:**
-```powershell
+`powershell
 python -m venv venv
 .\venv\Scripts\activate
-```
+`
 
 **For Mac / Linux:**
-```bash
+`ash
 python3 -m venv venv
 source venv/bin/activate
-```
-*(You should see `(venv)` appear at the start of your terminal prompt, indicating the environment is active).*
+`
+*(You should see (venv) appear at the start of your terminal prompt, indicating the environment is active).*
 
 ## 4. Install Dependencies
 
-With the virtual environment active, install all the required Python packages (FastAPI, SQLAlchemy, Uvicorn, APScheduler, etc.):
+With the virtual environment active, install all the required Python packages (FastAPI, SQLAlchemy, Uvicorn, APScheduler, Scikit-Learn, etc.):
 
-```bash
+`ash
 pip install -r requirements.txt
-```
-
-## 5. Run the Server
-
-You are now ready to start the server! Run the following command:
-
-```bash
-uvicorn app.main:app --reload
-```
-
-When you see the message `Application startup complete.`, the server is running successfully!
-
-## 6. Access the Dashboard
-
-Open your favorite web browser (Chrome, Edge, Firefox, Safari) and go to:
-
-👉 **http://localhost:8000**
-
-You will see the APM Dashboard interface. You can begin adding endpoints to monitor right away.
+`
 
 ---
 
-## Important Notes on Hosting & Deployment
+## 5. Run the Demo Environment (Crucial for Defense)
 
-This system runs a **Background Scheduler** that pings your APIs every 60 seconds (even when you are not actively looking at the dashboard). 
+To fully demonstrate the capabilities of the APM system (including SLA calculations, ML anomaly detection, and Root Cause Analysis), you need to run **three separate processes simultaneously**. 
 
-Because of this 24/7 background activity requirement, **free "Serverless" hosting tiers (like Vercel or Render's Free Tier) are not recommended.** Free tiers usually "go to sleep" after 15 minutes of inactivity, which will cause your background API monitoring to stop completely until someone visits the site again to wake it up.
+You will need to open **three separate terminal windows**. Ensure that the virtual environment is activated (.\venv\Scripts\activate) in **all three windows**.
 
-**Recommended Hosting Providers:**
-If you want to deploy this to the internet so you can view it from anywhere, it is recommended to use a paid VPS (Virtual Private Server) or a persistent container service:
-- **Render.com** (Starter Web Service: ~$7/month + a persistent disk for the SQLite database)
-- **Railway.app** (Developer plan: ~$5/month)
-- **DigitalOcean** (Basic Droplet: ~$4/month)
+### Terminal 1: Start the APM Backend
+This is the core engine that collects metrics, evaluates ML models, and serves the dashboard.
+`ash
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+`
+
+### Terminal 2: Start the Dummy Target App
+This is the mock e-commerce application that we will be monitoring and intentionally breaking during the demo.
+`ash
+uvicorn dummy_app:app --host 0.0.0.0 --port 8001
+`
+
+### Terminal 3: Start the Traffic Generator
+This script acts as thousands of users hitting the dummy app, generating the raw telemetry data required for the charts and SLA math.
+`ash
+python load_generator.py --mode normal
+`
+*(Note: You can stop this script at any time using Ctrl+C and run it in --mode latency_spike or --mode error_burst to demonstrate anomalies to the panel!)*
+
+---
+
+## 6. Access the Dashboard
+
+Once all three processes are running smoothly, open your web browser (Chrome, Edge, Firefox, Safari) and go to:
+
+🚀 **http://localhost:8000**
+
+You will see the APM Dashboard interface actively capturing data from the load generator. 
+
+## Troubleshooting
+
+- **Processes Hanging:** If the dashboard stops updating or a script freezes, press Ctrl+C in the terminal to stop the process, and run the command again.
+- **Port in Use Error:** If you get an error that port 8000 is already in use, you likely have another instance of the server running in the background. Close all terminal windows and start fresh.

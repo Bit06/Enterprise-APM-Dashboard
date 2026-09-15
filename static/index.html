@@ -39,7 +39,7 @@
 
   .grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
     gap: 14px;
     margin-bottom: 32px;
   }
@@ -100,7 +100,36 @@
 </header>
 
 <main>
+  
+  <div class="panel" id="global-sla-panel" style="background: rgba(46,204,113,0.05); border-color: rgba(46,204,113,0.2); padding: 20px; border-radius: 8px; margin-bottom: 24px; border: 1px solid var(--border);">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+      <h2 style="margin:0; color:var(--up); font-size:12px; letter-spacing:0.05em; text-transform:uppercase;">Global Service Level Agreement (SLA)</h2>
+      <select id="sla-month-select" class="time-select" style="padding:4px 8px; border-radius:4px; border:1px solid var(--border); background:var(--bg); color:var(--text); font-size:12px;" onchange="loadGlobalSLA()">
+      </select>
+    </div>
+    <div id="sla-loading" style="color:var(--muted); font-size:14px; text-align:center; padding: 20px;">Loading SLA Report...</div>
+    <div id="sla-content" style="display:none; gap:32px; align-items:center; flex-wrap: wrap;">
+      <div>
+        <div style="color:var(--muted); font-size:12px;">Global Uptime (24h)</div>
+        <div id="sla-uptime" style="font-size:28px; font-weight:600; color:var(--up);">--</div>
+      </div>
+      <div>
+        <div style="color:var(--muted); font-size:12px;">MTTR (Mean Time to Resolve)</div>
+        <div id="sla-mttr" style="font-size:24px; font-weight:600; color:var(--text);">--</div>
+      </div>
+      <div>
+        <div style="color:var(--muted); font-size:12px;">MTBF (Mean Time Between Failures)</div>
+        <div id="sla-mtbf" style="font-size:24px; font-weight:600; color:var(--text);">--</div>
+      </div>
+      <div>
+        <div style="color:var(--muted); font-size:12px;">Total Incidents</div>
+        <div id="sla-incidents" style="font-size:16px; font-weight:500; color:var(--muted);">--</div>
+      </div>
+    </div>
+  </div>
+
   <h2>Service Health</h2>
+
   <div class="grid" id="status-grid"></div>
 
   <div class="panel">
@@ -325,7 +354,58 @@ function healthLabel(h) {
   return { up: "Operational", degraded: "Degraded", down: "Down", unknown: "Unknown" }[h] || h;
 }
 
+
+function populateSlaMonths() {
+    const sel = document.getElementById("sla-month-select");
+    sel.innerHTML = "";
+    for(let i=0; i<3; i++) {
+        let d = new Date();
+        d.setMonth(d.getMonth() - i);
+        let val = d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2, '0');
+        let txt = d.toLocaleString('default', { month: 'long', year: 'numeric' });
+        sel.innerHTML += `<option value="${val}">${txt}</option>`;
+    }
+}
+
+async function loadGlobalSLA() {
+    document.getElementById("sla-loading").style.display = "block";
+    document.getElementById("sla-loading").textContent = "Loading SLA Report...";
+    document.getElementById("sla-content").style.display = "none";
+    try {
+        const month = document.getElementById("sla-month-select").value;
+        const res = await fetch(`/api/reports/sla?month=${month}`);
+        const data = await res.json();
+        
+        document.getElementById("sla-uptime").textContent = data.availability_pct.toFixed(3) + "%";
+        document.getElementById("sla-mttr").textContent = data.global_mttr_minutes > 0 ? data.global_mttr_minutes.toFixed(1) + " min" : "N/A";
+        document.getElementById("sla-mtbf").textContent = data.total_incidents > 0 ? data.global_mtbf_hours.toFixed(1) + " hrs" : "∞ (No Failures)";
+        document.getElementById("sla-incidents").textContent = data.total_incidents;
+        
+        if (data.availability_pct < 99.0) {
+            document.getElementById("sla-uptime").style.color = "var(--down)";
+            document.getElementById("global-sla-panel").style.borderColor = "rgba(231,76,60,0.2)";
+            document.getElementById("global-sla-panel").style.backgroundColor = "rgba(231,76,60,0.05)";
+        } else if (data.availability_pct < 99.9) {
+            document.getElementById("sla-uptime").style.color = "var(--warn)";
+            document.getElementById("global-sla-panel").style.borderColor = "rgba(245,166,35,0.2)";
+            document.getElementById("global-sla-panel").style.backgroundColor = "rgba(245,166,35,0.05)";
+        } else {
+            document.getElementById("sla-uptime").style.color = "var(--up)";
+            document.getElementById("global-sla-panel").style.borderColor = "rgba(46,204,113,0.2)";
+            document.getElementById("global-sla-panel").style.backgroundColor = "rgba(46,204,113,0.05)";
+        }
+    } catch(e) {
+        document.getElementById("sla-loading").textContent = "Failed to load SLA report.";
+        return;
+    }
+    document.getElementById("sla-loading").style.display = "none";
+    document.getElementById("sla-content").style.display = "flex";
+}
+populateSlaMonths();
+loadGlobalSLA();
+
 async function renderStatusGrid() {
+
   const statuses = await fetchJSON("/api/status");
   const grid = document.getElementById("status-grid");
   grid.innerHTML = "";
@@ -344,18 +424,29 @@ async function renderStatusGrid() {
         </div>
         <div class="dot ${s.health}"></div>
       </div>
-      <div class="metrics">
+      <div class="metrics" style="gap: 12px; justify-content: space-between;">
         <div>
           <div class="metric-label">Status</div>
           <div class="metric-value">${healthLabel(s.health)}</div>
         </div>
         <div>
-          <div class="metric-label">Response</div>
-          <div class="metric-value">${s.response_time_ms ? Math.round(s.response_time_ms) + "ms" : "—"}</div>
+          <div class="metric-label">p99</div>
+          <div class="metric-value">${s.p99_latency_ms ? Math.round(s.p99_latency_ms) + "ms" : "—"}</div>
         </div>
         <div>
-          <div class="metric-label">24h Avail.</div>
-          <div class="metric-value">${s.availability_pct_24h}%</div>
+          <div class="metric-label">RPS</div>
+          <div class="metric-value">${s.rps !== undefined && s.rps !== null ? s.rps.toFixed(1) : "—"}</div>
+        </div>
+        <div>
+          <div class="metric-label">Errors</div>
+          <div class="metric-value">${s.error_rate !== undefined && s.error_rate !== null ? s.error_rate.toFixed(1) + "%" : "—"}</div>
+        </div>
+        <div>
+          <div class="metric-label">SLO Burn</div>
+          <div class="metric-value" style="color:${s.slo_burn_rate > 2 ? 'var(--down)' : s.slo_burn_rate > 1 ? 'var(--warn)' : 'var(--up)'}">${s.slo_burn_rate !== undefined && s.slo_burn_rate !== null ? s.slo_burn_rate.toFixed(2) + "x" : "—"}</div>
+        </div>
+        <div style="margin-top: 8px; flex-shrink: 0;">
+          <a href="/endpoint/${s.endpoint_id}" style="color:var(--accent); text-decoration:none; font-size:12px; font-weight:600;" onclick="event.stopPropagation();">Drill-down &rarr;</a>
         </div>
       </div>
     `;
@@ -721,8 +812,9 @@ async function renderAllGraphs() {
       const container = document.createElement("div");
       container.className = "card";
       container.id = "mini-chart-container-" + id;
-      container.style.cursor = "default";
-      container.innerHTML = `<div class="name" style="margin-bottom:8px">${endpointsById[id].name}</div><canvas id="mini-chart-${id}" height="200"></canvas>`;
+      container.style.cursor = "pointer";
+      container.onclick = () => window.location.href = `/endpoint/${id}`;
+      container.innerHTML = `<div class="name" style="margin-bottom:8px">${endpointsById[id].name} <span style="font-size:10px; color:var(--muted);">&nearr;</span></div><div style="height:40px; position:relative;"><canvas id="mini-chart-${id}"></canvas></div>`;
       grid.appendChild(container);
     }
   });
@@ -763,44 +855,33 @@ async function renderAllGraphs() {
             {
               data: data,
               borderColor: "#4f8cff",
+              borderWidth: 1,
               backgroundColor: "rgba(79,140,255,0.1)",
               fill: true,
               tension: 0.3,
               pointRadius: pointRadii,
               pointBackgroundColor: pointColors,
               pointBorderColor: "transparent",
-              segment: {
-                borderColor: ctx => {
-                  const h0 = history[ctx.p0DataIndex];
-                  const h1 = history[ctx.p1DataIndex];
-                  if (h0 && h1 && (!h0.is_available || !h1.is_available)) return '#e74c3c';
-                  return '#4f8cff';
-                },
-                backgroundColor: ctx => {
-                  const h0 = history[ctx.p0DataIndex];
-                  const h1 = history[ctx.p1DataIndex];
-                  if (h0 && h1 && (!h0.is_available || !h1.is_available)) return 'rgba(231,76,60,0.2)';
-                  return 'rgba(79,140,255,0.1)';
-                }
-              }
+              pointHoverRadius: 0
             },
             {
-              label: "ML Forecast",
               data: forecastData,
               borderColor: "#f5a623",
-              borderDash: [5, 5],
+              borderWidth: 1,
+              borderDash: [2, 2],
               fill: false,
               tension: 0.3,
-              pointRadius: 0,
+              pointRadius: 0
             }
           ]
         },
         options: {
           responsive: true,
-          plugins: { legend: { display: false } },
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false }, tooltip: { enabled: false } },
           scales: {
-            x: { display: true, ticks: { color: "#8a94ab", maxTicksLimit: 6 }, grid: { color: "#2a3348" } },
-            y: { display: true, ticks: { color: "#8a94ab" }, grid: { color: "#2a3348" }, min: 0 }
+            x: { display: false },
+            y: { display: false, min: 0 }
           }
         }
       });

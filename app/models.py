@@ -21,9 +21,12 @@ class Endpoint(Base):
     consecutive_failures_for_alert = Column(Integer, default=2)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    team_name = Column(String(100), nullable=True)
 
     results = relationship("MonitoringResult", back_populates="endpoint", cascade="all, delete-orphan")
     alerts = relationship("Alert", back_populates="endpoint", cascade="all, delete-orphan")
+    intervals = relationship("EndpointInterval", back_populates="endpoint", cascade="all, delete-orphan")
+    incidents = relationship("Incident", back_populates="endpoint", cascade="all, delete-orphan")
 
 
 class MonitoringResult(Base):
@@ -62,3 +65,79 @@ class Alert(Base):
     notified = Column(Boolean, default=False)
 
     endpoint = relationship("Endpoint", back_populates="alerts")
+
+class Incident(Base):
+    """A tracked lifecycle of an outage or severe degradation."""
+    __tablename__ = "incidents"
+
+    id = Column(Integer, primary_key=True, index=True)
+    endpoint_id = Column(Integer, ForeignKey("endpoints.id"), nullable=False, index=True)
+    status = Column(String(20), default="open") # open, resolved
+    severity = Column(String(20), default="critical") # e.g. critical, warning
+    start_time = Column(DateTime, default=datetime.utcnow, index=True)
+    resolution_time = Column(DateTime, nullable=True)
+    duration_minutes = Column(Float, nullable=True)
+    assigned_team = Column(String(100), nullable=True)
+    root_cause = Column(String(500), nullable=True)
+    error_message = Column(Text, nullable=True)
+
+    endpoint = relationship("Endpoint", back_populates="incidents")
+
+
+class EndpointInterval(Base):
+    """Tracks continuous UP or DOWN intervals for an endpoint."""
+    __tablename__ = "endpoint_intervals"
+
+    id = Column(Integer, primary_key=True, index=True)
+    endpoint_id = Column(Integer, ForeignKey("endpoints.id"), nullable=False, index=True)
+    status = Column(String(20), nullable=False) # 'up' or 'down'
+    start_time = Column(DateTime, default=datetime.utcnow, index=True)
+    end_time = Column(DateTime, nullable=True)
+    duration_seconds = Column(Float, default=0.0)
+
+    endpoint = relationship("Endpoint", back_populates="intervals")
+
+
+class RequestLog(Base):
+    """Raw incoming telemetry from the dummy app."""
+    __tablename__ = "request_logs"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    endpoint = Column(String(500), index=True)
+    method = Column(String(20), index=True)
+    status_code = Column(Integer)
+    duration_ms = Column(Float)
+    timestamp = Column(Float, index=True)
+
+
+class MetricBucket(Base):
+    """Aggregated APM metrics per minute."""
+    __tablename__ = "metric_buckets"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    endpoint = Column(String(500), index=True)
+    method = Column(String(20), index=True)
+    bucket_minute = Column(DateTime, index=True)
+    
+    request_count = Column(Integer, default=0)
+    error_count = Column(Integer, default=0)
+    error_rate = Column(Float, default=0.0)
+    rps = Column(Float, default=0.0)
+    
+    p50_latency_ms = Column(Float, default=0.0)
+    p95_latency_ms = Column(Float, default=0.0)
+    p99_latency_ms = Column(Float, default=0.0)
+    
+    # Optional fields for ML anomaly labels
+    is_anomaly = Column(Boolean, default=False)
+    anomaly_label = Column(String(100), nullable=True)
+
+
+class SLO(Base):
+    """Service Level Objectives for error budgets."""
+    __tablename__ = "slos"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    endpoint = Column(String(500), index=True)
+    target = Column(Float, default=0.99) # e.g., 0.999 for 99.9%
+    window_hours = Column(Integer, default=30)

@@ -3,7 +3,7 @@ import queue
 import logging
 from datetime import datetime
 from .database import SessionLocal
-from .models import Endpoint, MonitoringResult
+from .models import Endpoint, MonitoringResult, EndpointInterval
 from .alerts import evaluate_alerts
 
 logger = logging.getLogger("apm.worker")
@@ -33,17 +33,45 @@ def process_telemetry():
 
                 # Run ML anomaly detection
                 from .ml_engine import detect_anomaly
-                is_anomaly, anomaly_score = detect_anomaly(endpoint.id, result_data.get("response_time_ms"))
+                is_anomaly, anomaly_score, _ = detect_anomaly(endpoint.id, result_data.get("response_time_ms"))
 
                 # 1. Save telemetry to time-series DB (simulated by SQLite here)
+                now_utc = datetime.utcnow()
                 result = MonitoringResult(
                     endpoint_id=endpoint.id,
-                    timestamp=datetime.utcnow(),
+                    timestamp=now_utc,
                     is_anomaly=is_anomaly,
                     anomaly_score=anomaly_score,
                     **result_data,
                 )
                 db.add(result)
+                
+                # 1b. Update Pre-computed Endpoint Intervals
+                current_status = 'up' if result.is_available else 'down'
+                last_interval = db.query(EndpointInterval).filter(
+                    EndpointInterval.endpoint_id == endpoint.id
+                ).order_by(EndpointInterval.start_time.desc()).first()
+
+                if not last_interval:
+                    db.add(EndpointInterval(
+                        endpoint_id=endpoint.id,
+                        status=current_status,
+                        start_time=now_utc,
+                        end_time=now_utc,
+                        duration_seconds=0.0
+                    ))
+                elif last_interval.status == current_status:
+                    last_interval.end_time = now_utc
+                    last_interval.duration_seconds = (now_utc - last_interval.start_time).total_seconds()
+                else:
+                    db.add(EndpointInterval(
+                        endpoint_id=endpoint.id,
+                        status=current_status,
+                        start_time=now_utc,
+                        end_time=now_utc,
+                        duration_seconds=0.0
+                    ))
+
                 db.commit()
                 db.refresh(result)
 

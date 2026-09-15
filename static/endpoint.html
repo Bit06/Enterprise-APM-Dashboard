@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Endpoint Details - APM</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+<style>
+  :root {
+    --bg: #0f1420;
+    --panel: #171e2e;
+    --border: #2a3348;
+    --text: #e8ecf4;
+    --muted: #8a94ab;
+    --up: #2ecc71;
+    --warn: #f5a623;
+    --down: #e74c3c;
+    --unknown: #5a6478;
+    --accent: #4f8cff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+  
+  /* Layout */
+  header {
+    padding: 16px 28px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .header-left { display: flex; align-items: center; gap: 16px; }
+  .back-btn { color: var(--muted); text-decoration: none; font-size: 14px; padding: 6px 12px; background: rgba(255,255,255,0.05); border-radius: 4px; }
+  .back-btn:hover { background: rgba(255,255,255,0.1); color: white; }
+  header h1 { font-size: 18px; margin: 0; font-weight: 600; display: flex; align-items: center; gap: 12px; }
+  
+  .badge { font-size: 11px; padding: 3px 8px; border-radius: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+  .badge.down { background: rgba(231, 76, 60, 0.2); color: var(--down); border: 1px solid rgba(231,76,60,0.5); }
+  .badge.up { background: rgba(46, 204, 113, 0.2); color: var(--up); border: 1px solid rgba(46,204,113,0.5); }
+  
+  select.time-select {
+    background: var(--panel); color: var(--text); border: 1px solid var(--border);
+    padding: 8px 12px; border-radius: 4px; outline: none; font-size: 14px;
+  }
+  
+  main { padding: 24px 28px; max-width: 1400px; margin: 0 auto; }
+  
+  .top-section { display: flex; gap: 24px; margin-bottom: 24px; }
+  .chart-container { flex: 2; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 16px; position: relative; }
+  .summary-section { flex: 1; display: flex; flex-direction: column; gap: 16px; }
+  
+  .summary-card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 32px 24px;
+    text-align: center; display: flex; flex-direction: column; justify-content: center; align-items: center; flex: 1;
+  }
+  .summary-card .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; font-weight: 600; }
+  .summary-card h2 { font-size: 32px; margin: 0; font-weight: 300; }
+  .summary-card .sub { color: var(--muted); font-size: 13px; margin-top: 8px; }
+  
+  /* Timeline Bar */
+  .timeline-container { background: var(--panel); padding: 16px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 32px; }
+  .timeline-bar { display: flex; height: 16px; border-radius: 4px; overflow: hidden; background: var(--border); cursor: pointer; }
+  .timeline-segment { transition: opacity 0.2s; }
+  .timeline-segment:hover { opacity: 0.8; }
+  
+  /* Tabs and Table */
+  .tabs { display: flex; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+  .tab { padding: 12px 24px; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; font-size: 14px; font-weight: 500; }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  
+  table { width: 100%; border-collapse: collapse; text-align: left; }
+  th { padding: 12px 16px; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--border); }
+  td { padding: 16px; border-bottom: 1px solid rgba(42, 51, 72, 0.5); font-size: 14px; }
+  tr:hover td { background: rgba(255,255,255,0.02); }
+  
+  .status-icon { display: inline-block; width: 16px; height: 16px; border-radius: 50%; text-align: center; line-height: 16px; font-size: 10px; color: white; }
+  .status-icon.up { background: var(--up); }
+  .status-icon.down { background: var(--down); }
+  
+  .btn { background: var(--panel); border: 1px solid var(--border); color: var(--text); padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; margin-left: 8px; }
+  .btn:hover { background: rgba(255,255,255,0.1); }
+  .btn-root-cause { border-color: rgba(245, 166, 35, 0.5); color: var(--warn); }
+  .btn-root-cause:hover { background: rgba(245, 166, 35, 0.1); }
+  
+  /* Modals */
+  .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); display: none; justify-content: center; align-items: center; z-index: 1000; }
+  .modal { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; width: 600px; max-width: 90%; max-height: 90vh; overflow-y: auto; }
+  .modal-header { padding: 16px 24px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+  .modal-header h3 { margin: 0; font-size: 16px; }
+  .modal-close { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 20px; }
+  .modal-body { padding: 24px; }
+  
+  pre.code-block { background: #0b0f19; padding: 16px; border-radius: 4px; overflow-x: auto; font-size: 13px; color: #a0a0a0; border: 1px solid var(--border); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-left">
+    <a href="/" class="back-btn">← Back</a>
+    <h1 id="endpoint-name">Loading... <span id="current-status-badge" class="badge"></span></h1>
+  </div>
+  <div>
+    <select id="timeframe-select" class="time-select" onchange="loadData()">
+      <option value="1" selected>Last 1 hour</option>
+      <option value="24">Last 24 hours</option>
+      <option value="168">Last 7 days</option>
+      <option value="720">Last 30 days</option>
+    </select>
+  </div>
+</header>
+
+<main>
+  <div class="top-section">
+    <div class="chart-container">
+      <canvas id="mainChart"></canvas>
+    </div>
+    <div class="summary-section">
+      <div class="summary-card">
+        <span class="label">Downtime</span>
+        <h2 id="summary-downtime">-</h2>
+        <div class="sub" id="summary-outages">(-) outages</div>
+      </div>
+      <div class="summary-card">
+        <span class="label">Uptime</span>
+        <h2 id="summary-uptime">-</h2>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel" id="slo-panel" style="display:none; background: rgba(79,140,255,0.05); border-color: rgba(79,140,255,0.2); padding: 20px; border-radius: 8px; margin-bottom: 24px; border: 1px solid var(--border);">
+    <h2 style="margin:0 0 12px; color:var(--accent); font-size:12px; letter-spacing:0.05em; text-transform:uppercase;">SLO Error Budget Tracking</h2>
+    <div style="display:flex; gap:32px; align-items:center;">
+      <div>
+        <div style="color:var(--muted); font-size:12px;">Target</div>
+        <div id="slo-target" style="font-size:24px; font-weight:600; color:var(--text);">--</div>
+      </div>
+      <div>
+        <div style="color:var(--muted); font-size:12px;">Error Budget Burn Rate</div>
+        <div id="slo-burn-rate" style="font-size:24px; font-weight:600; color:var(--text);">--</div>
+      </div>
+      <div>
+        <div style="color:var(--muted); font-size:12px;">Errors (Actual / Allowed)</div>
+        <div id="slo-errors" style="font-size:16px; font-weight:500; color:var(--muted);">--</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel" id="resource-panel" style="display:none; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 20px; margin-bottom: 32px;">
+    <h2 style="margin:0 0 12px; color:var(--muted); font-size:12px; letter-spacing:0.05em; text-transform:uppercase;">Throughput & Errors</h2>
+    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px;">
+      <div style="height:140px; position:relative;">
+        <canvas id="rps-chart"></canvas>
+      </div>
+      <div style="height:140px; position:relative;">
+        <canvas id="error-rate-chart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <div class="timeline-container">
+    <div class="timeline-bar" id="timeline-bar">
+      <!-- Segments injected via JS -->
+    </div>
+    <div style="display:flex; justify-content:space-between; margin-top:8px; color:var(--muted); font-size:11px;">
+      <span id="timeline-start"></span>
+      <span id="timeline-end"></span>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active">Incident History</div>
+  </div>
+
+  <table id="incidents-table">
+    <thead>
+      <tr>
+        <th width="50"></th>
+        <th>Start Time</th>
+        <th>Resolution Time</th>
+        <th>Duration</th>
+        <th>Severity</th>
+        <th>Status</th>
+        <th style="text-align: right;">Actions</th>
+      </tr>
+    </thead>
+    <tbody id="incidents-body">
+      <tr><td colspan="7" style="text-align:center; color:var(--muted);">Loading...</td></tr>
+    </tbody>
+  </table>
+</main>
+
+<!-- Root Cause Modal -->
+<div class="modal-overlay" id="rc-modal" onclick="closeModals(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h3>Root Cause Analysis</h3>
+      <button class="modal-close" onclick="closeModals()">&times;</button>
+    </div>
+    <div class="modal-body" id="rc-body">
+      Loading analysis...
+    </div>
+  </div>
+</div>
+
+<!-- Test Log Modal -->
+<div class="modal-overlay" id="log-modal" onclick="closeModals(event)">
+  <div class="modal" style="width:800px;" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h3>Test Log (Telemetry Snippet)</h3>
+      <button class="modal-close" onclick="closeModals()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p style="color:var(--muted); font-size:13px; margin-top:0;">Showing sample of pings during this event.</p>
+      <pre class="code-block" id="log-body">Loading...</pre>
+    </div>
+  </div>
+</div>
+
+<script>
+  const endpointId = window.location.pathname.split('/').pop();
+  let mainChartInstance = null;
+  let rpsChartInstance = null;
+  let errorRateChartInstance = null;
+
+  if (!endpointId) {
+    document.body.innerHTML = "<h2 style='padding:40px;'>Error: No endpoint ID provided.</h2>";
+  } else {
+    loadData();
+  }
+
+  function formatDuration(seconds) {
+    if (seconds < 60) return Math.floor(seconds) + " seconds";
+    if (seconds < 3600) return Math.floor(seconds / 60) + " minutes";
+    if (seconds < 86400) return Math.floor(seconds / 3600) + " hours";
+    return Math.floor(seconds / 86400) + " days";
+  }
+
+  async function loadData() {
+    const hours = document.getElementById('timeframe-select').value;
+    
+    // Fetch generic endpoint info to get the name
+    const epRes = await fetch('/api/endpoints');
+    const endpoints = await epRes.json();
+    const ep = endpoints.find(e => e.id == endpointId);
+    if(ep) document.getElementById('endpoint-name').childNodes[0].nodeValue = ep.name + " ";
+
+    // Fetch Summary
+    const sumRes = await fetch(`/api/endpoints/${endpointId}/summary?hours=${hours}`);
+    const summary = await sumRes.json();
+    
+    document.getElementById('summary-uptime').innerText = summary.uptime_pct + "%";
+    document.getElementById('summary-downtime').innerText = formatDuration(summary.downtime_seconds);
+    document.getElementById('summary-outages').innerText = `(${summary.outages} outages)`;
+    
+    const badge = document.getElementById('current-status-badge');
+    if (summary.currently_down) {
+      badge.className = "badge down";
+      badge.innerText = "⚠️ Currently Down - " + formatDuration(summary.current_down_duration);
+    } else {
+      badge.className = "badge up";
+      badge.innerText = "Operational";
+    }
+
+    // Fetch Incidents
+    const incRes = await fetch(`/api/endpoints/${endpointId}/incidents?limit=50`);
+    const incidents = await incRes.json();
+    
+    renderIncidentsTable(incidents);
+
+    // Fetch History for Main Chart
+    const histRes = await fetch(`/api/history/${endpointId}?hours=${hours}`);
+    const history = await histRes.json();
+    
+    // Fetch forecast
+    let forecastData = Array(history.length).fill(null);
+    try {
+      const forecast = await fetch(`/api/forecast/${endpointId}?steps=10`).then(r => r.json());
+      const fData = forecast.forecasted_response_times;
+      if (fData && fData.length > 0 && history.length > 0) {
+        forecastData[history.length - 1] = history[history.length - 1].is_available ? history[history.length - 1].response_time_ms : 0;
+        forecastData = forecastData.concat(fData);
+      }
+    } catch (e) {}
+
+    // Fetch Metric buckets for RPS/Errors
+    const metricsRes = await fetch(`/api/endpoints/${endpointId}/metrics?hours=${hours}`);
+    const metricsHistory = await metricsRes.json();
+    
+    try {
+      const slo = await fetch(`/api/endpoints/${endpointId}/slo`).then(r => r.json());
+      if (slo.has_slo) {
+        document.getElementById('slo-panel').style.display = 'block';
+        document.getElementById('slo-target').textContent = (slo.target * 100) + '%';
+        
+        const burn = document.getElementById('slo-burn-rate');
+        burn.textContent = slo.burn_rate.toFixed(2) + 'x';
+        if (slo.burn_rate > 2.0) burn.style.color = 'var(--down)';
+        else if (slo.burn_rate > 1.0) burn.style.color = 'var(--warn)';
+        else burn.style.color = 'var(--up)';
+        
+        const allowed = Math.floor(slo.total_requests * (1 - slo.target));
+        document.getElementById('slo-errors').textContent = slo.actual_errors + ' / ' + allowed;
+      } else {
+        document.getElementById('slo-panel').style.display = 'none';
+      }
+    } catch (e) {
+      document.getElementById('slo-panel').style.display = 'none';
+    }
+
+    renderChart(history, forecastData, metricsHistory);
+  }
+
+  function renderIncidentsTable(incidents) {
+    const tbody = document.getElementById('incidents-body');
+    if (!tbody) return;
+    tbody.innerHTML = "";
+    
+    if(!Array.isArray(incidents) || incidents.length === 0) {
+      tbody.innerHTML = "<tr><td colspan='7' style='text-align:center; color:var(--muted); padding:30px;'>No incidents recorded.</td></tr>";
+      return;
+    }
+
+    incidents.forEach(inc => {
+      const tr = document.createElement('tr');
+      const isResolved = inc.status === 'resolved';
+      const icon = isResolved ? "✓" : "!";
+      const iconClass = isResolved ? "up" : "down";
+      const statusBadge = isResolved ? `<span class="badge resolved" style="background:rgba(46,204,113,0.15); color:var(--up);">Resolved</span>` : `<span class="badge open" style="background:rgba(231,76,60,0.15); color:var(--down);">Open</span>`;
+      const sevColor = inc.severity === 'critical' ? 'var(--down)' : (inc.severity === 'warning' ? 'var(--warn)' : 'var(--text)');
+      
+      let actions = `<button class="btn btn-root-cause" onclick="openRootCause(${inc.id}, '${inc.status}')">Analyze Root Cause</button>`;
+
+      tr.innerHTML = `
+        <td><div class="status-icon ${iconClass}">${icon}</div></td>
+        <td>${new Date(inc.start_time).toLocaleString()}</td>
+        <td>${inc.resolution_time ? new Date(inc.resolution_time).toLocaleString() : '-'}</td>
+        <td>${inc.duration_minutes ? inc.duration_minutes.toFixed(1) + " min" : '-'}</td>
+        <td style="color:${sevColor}; font-weight:600; text-transform:capitalize;">${inc.severity || 'Critical'}</td>
+        <td>${statusBadge}</td>
+        <td style="text-align: right;">${actions}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  function renderChart(history, forecastData, metricsHistory) {
+    const ctx = document.getElementById('mainChart').getContext('2d');
+    if (mainChartInstance) mainChartInstance.destroy();
+    
+    const labels = history.map(h => new Date(h.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}));
+    const data = history.map(h => h.is_available ? h.response_time_ms : 0);
+    const pointColors = history.map(h => !h.is_available ? "#e74c3c" : (h.is_anomaly ? "#f5a623" : "transparent"));
+    const pointRadii = history.map(h => (!h.is_available || h.is_anomaly) ? 4 : 0);
+    
+    const extendedLabels = [...labels];
+    if (forecastData.length > labels.length) {
+      const lastTime = history.length > 0 ? new Date(history[history.length - 1].timestamp) : new Date();
+      for (let i = 0; i < forecastData.length - labels.length; i++) {
+        lastTime.setMinutes(lastTime.getMinutes() + 1);
+        extendedLabels.push(lastTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) + " (Pred)");
+      }
+    }
+
+    mainChartInstance = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: extendedLabels,
+        datasets: [
+          {
+            label: 'Response time (ms)',
+            data: data,
+            borderColor: '#4f8cff',
+            backgroundColor: 'rgba(79, 140, 255, 0.1)',
+            borderWidth: 2,
+            pointRadius: pointRadii,
+            pointBackgroundColor: pointColors,
+            pointBorderColor: "transparent",
+            pointHitRadius: 10,
+            fill: true,
+            tension: 0.1,
+            segment: {
+              borderColor: ctx => {
+                const h0 = history[ctx.p0DataIndex];
+                const h1 = history[ctx.p1DataIndex];
+                if (h0 && h1 && (!h0.is_available || !h1.is_available)) return '#e74c3c';
+                return '#4f8cff';
+              },
+              backgroundColor: ctx => {
+                const h0 = history[ctx.p0DataIndex];
+                const h1 = history[ctx.p1DataIndex];
+                if (h0 && h1 && (!h0.is_available || !h1.is_available)) return 'rgba(231,76,60,0.2)';
+                return 'rgba(79,140,255,0.1)';
+              }
+            }
+          },
+          {
+            label: "Downtime",
+            data: [],
+            borderColor: "#e74c3c",
+            backgroundColor: "rgba(231,76,60,0.2)",
+            borderWidth: 2,
+            pointRadius: 4,
+            pointBackgroundColor: "#e74c3c"
+          },
+          {
+            label: "ML Forecast",
+            data: forecastData,
+            borderColor: "#f5a623",
+            borderDash: [5, 5],
+            fill: false,
+            tension: 0.3,
+            pointRadius: 0,
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: true, labels: { color: "#e8ecf4" } },
+          zoom: {
+            limits: { x: { min: 0, max: 'original' } },
+            pan: { enabled: false, mode: 'x' },
+            zoom: { wheel: { enabled: false }, pinch: { enabled: false }, mode: 'x' }
+          }
+        },
+        scales: {
+          x: { ticks: { color: "#8a94ab", maxTicksLimit: 10 }, grid: { color: "#2a3348" } },
+          y: { ticks: { color: "#8a94ab" }, grid: { color: "#2a3348" }, beginAtZero: true }
+        }
+      }
+    });
+
+    const metricLabels = metricsHistory.map(h => new Date(h.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}));
+    const rpsData = metricsHistory.map(h => h.rps || 0);
+    const errorData = metricsHistory.map(h => h.error_rate || 0);
+    const latestRps = rpsData.length > 0 ? rpsData[rpsData.length - 1].toFixed(1) + " req/s" : "0 req/s";
+    const latestErr = errorData.length > 0 ? errorData[errorData.length - 1].toFixed(2) + "%" : "0%";
+
+    document.getElementById("resource-panel").style.display = "block";
+    
+    if (rpsChartInstance) rpsChartInstance.destroy();
+    rpsChartInstance = new Chart(document.getElementById("rps-chart").getContext("2d"), {
+      type: "line",
+      data: {
+        labels: metricLabels,
+        datasets: [{
+          label: `RPS (${latestRps})`,
+          data: rpsData,
+          borderColor: "#2ecc71",
+          backgroundColor: "rgba(46,204,113,0.1)",
+          fill: true,
+          tension: 0.3,
+          pointRadius: 0
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: true, position: 'top', labels: { color: "#a0a0a0", usePointStyle: true, boxWidth: 8 } } },
+        scales: { x: { display: false }, y: { min: 0, grid: { color: "rgba(255,255,255,0.05)" }, ticks: { color: "#a0a0a0" } } }
+      }
+    });
+
+    if (errorRateChartInstance) errorRateChartInstance.destroy();
+    errorRateChartInstance = new Chart(document.getElementById("error-rate-chart").getContext("2d"), {
+      type: "line",
+      data: {
+        labels: metricLabels,
+        datasets: [{
+          label: `Error Rate (${latestErr})`,
+          data: errorData,
+          borderColor: "#e74c3c",
+          backgroundColor: "rgba(231,76,60,0.1)",
+          fill: true,
+          tension: 0.3,
+          pointRadius: 0
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: true, position: 'top', labels: { color: "#a0a0a0", usePointStyle: true, boxWidth: 8 } } },
+        scales: { x: { display: true, grid: { color: "rgba(255,255,255,0.05)" }, ticks: { color: "#a0a0a0", maxTicksLimit: 8 } }, y: { min: 0, grid: { color: "rgba(255,255,255,0.05)" }, ticks: { color: "#a0a0a0" } } }
+      }
+    });
+  }
+
+    async function openRootCause(incidentId, status) {
+      document.getElementById('rc-modal').style.display = "flex";
+      document.getElementById('rc-body').innerHTML = "<div style='text-align:center; color:var(--muted); padding:30px;'>Analyzing telemetry rules...</div>";
+      
+      try {
+          const res = await fetch(`/api/incidents/${incidentId}/rca`);
+          const data = await res.json();
+          
+          let html = "";
+          if (status === 'open') {
+              html += `<div style="background:rgba(245, 166, 35, 0.1); border:1px solid rgba(245, 166, 35, 0.5); color:var(--warn); padding:10px 16px; border-radius:6px; margin-bottom:16px; font-size:13px; font-weight:500;">⚠️ Incident is still open — analysis is preliminary.</div>`;
+          }
+          
+          html += `<div style="margin-bottom:12px;">
+            <span style="color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:0.5px;">Rule Evaluation</span>
+          </div>`;
+          
+          data.rca_analysis.forEach((cause, idx) => {
+            html += `
+              <div style="background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:16px; margin-bottom:12px;">
+                <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:8px;">
+                  <h3 style="margin:0; color:${cause.rule === 'undetermined' ? 'var(--text)' : 'var(--warn)'}; font-size:16px;">${idx === 0 && cause.rule !== 'undetermined' ? 'Primary Suspect: ' : ''}${cause.rule}</h3>
+                  <span style="background:rgba(255,255,255,0.05); border:1px solid var(--border); padding:2px 8px; border-radius:12px; font-size:10px; font-weight:bold; color:var(--text);">${cause.confidence.toUpperCase()} CONFIDENCE</span>
+                </div>
+                <p style="margin:0; color:var(--text); line-height:1.5; font-size:13px;">${cause.evidence}</p>
+              </div>
+            `;
+          });
+          
+          html += `<div style="margin-top:24px; margin-bottom:12px;">
+            <span style="color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:0.5px;">Telemetry Snapshot (Onset & Recovery)</span>
+          </div>`;
+          
+          if (data.telemetry_snapshot && data.telemetry_snapshot.length > 0) {
+              html += `<table style="width:100%; border-collapse:collapse; font-size:12px;">
+                <thead>
+                  <tr style="border-bottom:1px solid var(--border);">
+                    <th style="padding:8px; text-align:left; color:var(--muted);">Time</th>
+                    <th style="padding:8px; text-align:left; color:var(--muted);">Status</th>
+                    <th style="padding:8px; text-align:left; color:var(--muted);">CPU %</th>
+                    <th style="padding:8px; text-align:left; color:var(--muted);">Mem %</th>
+                    <th style="padding:8px; text-align:left; color:var(--muted);">Resp (ms)</th>
+                    <th style="padding:8px; text-align:left; color:var(--muted);">Error</th>
+                  </tr>
+                </thead>
+                <tbody>`;
+              
+              data.telemetry_snapshot.forEach((snap, idx) => {
+                  if (idx === 5 && data.telemetry_snapshot.length > 5) {
+                      html += `<tr><td colspan="6" style="text-align:center; padding:12px 0; color:var(--muted); border-top:1px dashed var(--border); border-bottom:1px dashed var(--border); background:rgba(255,255,255,0.02);">... incident window ...</td></tr>`;
+                  }
+                  
+                  const ts = new Date(snap.timestamp).toLocaleTimeString();
+                  const status = snap.status_code || 'Timeout';
+                  const cpu = snap.server_cpu_percent !== null ? snap.server_cpu_percent.toFixed(1) : '-';
+                  const mem = snap.server_memory_percent !== null ? snap.server_memory_percent.toFixed(1) : '-';
+                  const resp = snap.response_time_ms !== null ? snap.response_time_ms.toFixed(0) : '-';
+                  const err = snap.error_message ? `<span title="${snap.error_message}" style="color:var(--down); cursor:help;">${snap.error_message.substring(0,30)}...</span>` : '-';
+                  
+                  html += `<tr style="border-bottom:1px solid rgba(42,51,72,0.5);">
+                    <td style="padding:8px;">${ts}</td>
+                    <td style="padding:8px;">${status}</td>
+                    <td style="padding:8px;">${cpu}</td>
+                    <td style="padding:8px;">${mem}</td>
+                    <td style="padding:8px;">${resp}</td>
+                    <td style="padding:8px;">${err}</td>
+                  </tr>`;
+              });
+              
+              html += `</tbody></table>`;
+          } else {
+              html += `<div style="text-align:center; color:var(--muted); padding:20px; border:1px solid var(--border); border-radius:8px; background:rgba(255,255,255,0.02);">No telemetry captured during outage window.</div>`;
+          }
+          
+          document.getElementById('rc-body').innerHTML = html;
+      } catch (err) {
+          document.getElementById('rc-body').innerHTML = `<div style="color:var(--down); padding:20px;">Failed to load RCA: ${err.message}</div>`;
+      }
+    }
+
+  async function openTestLog(fromTime, toTime) {
+    document.getElementById('log-modal').style.display = "flex";
+    document.getElementById('log-body').innerText = "Fetching logs...";
+    
+    const res = await fetch(`/api/endpoints/${endpointId}/test_logs?from_time=${fromTime}&to_time=${toTime}`);
+    const data = await res.json();
+    
+    document.getElementById('log-body').innerText = JSON.stringify(data, null, 2);
+  }
+
+  function closeModals(e) {
+    if(e && e.target.classList && !e.target.classList.contains('modal-overlay')) return;
+    document.getElementById('rc-modal').style.display = "none";
+    document.getElementById('log-modal').style.display = "none";
+  }
+</script>
+</body>
+</html>

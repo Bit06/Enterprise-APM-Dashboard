@@ -136,9 +136,103 @@ def start_scheduler():
             next_run_time=datetime.utcnow() # Run immediately to train models on startup
         )
         
+        # Schedule Metric Aggregation
+        if scheduler.get_job("aggregate_metrics"):
+            scheduler.remove_job("aggregate_metrics")
+        scheduler.add_job(
+            aggregate_metrics,
+            "interval",
+            minutes=1,
+            id="aggregate_metrics",
+            next_run_time=datetime.utcnow() + timedelta(minutes=1)
+        )
+        
         if not scheduler.running:
             scheduler.start()
         logger.info("Scheduler started with %d active endpoint(s) and ML training job.", len(endpoints))
+    finally:
+        db.close()
+
+def aggregate_metrics():
+    """Aggregates raw RequestLogs from the last minute into MetricBucket."""
+    db = SessionLocal()
+    try:
+        now_ts = time.time()
+        current_minute_ts = now_ts - (now_ts % 60)
+        last_minute_ts = current_minute_ts - 60
+        last_minute_dt = datetime.utcfromtimestamp(last_minute_ts)
+        
+        from .models import RequestLog, MetricBucket
+        
+        logs = db.query(RequestLog).filter(
+            RequestLog.timestamp >= last_minute_ts,
+            RequestLog.timestamp < current_minute_ts
+        ).all()
+        logs = db.query(RequestLog).filter(
+            RequestLog.timestamp >= last_minute_ts,
+            RequestLog.timestamp < current_minute_ts
+        ).all()
+        
+        if not logs:
+            return
+            
+        groups = {}
+        for log in logs:
+            key = (log.endpoint, log.method)
+            if key not in groups:
+                groups[key] = []
+            groups[key].append(log)
+            
+        buckets = []
+        for (ep, method), group_logs in groups.items():
+            count = len(group_logs)
+            rps = count / 60.0
+            error_count = sum(1 for l in group_logs if l.status_code >= 500)
+            error_rate = (error_count / count) * 100.0 if count > 0 else 0.0
+            
+            durations = sorted([l.duration_ms for l in group_logs])
+            p50 = durations[int(0.50 * len(durations))] if durations else 0.0
+            p95 = durations[int(0.95 * len(durations))] if durations else 0.0
+            p99 = durations[int(0.99 * len(durations))] if durations else 0.0
+            
+            # Detect anomaly using ML engine
+            try:
+                from .ml_engine import detect_anomaly
+                is_anomaly, score, label = detect_anomaly(ep, p99)
+            except Exception as e:
+                logger.error(f"Error detecting anomaly: {e}")
+                is_anomaly, score, label = False, 0.0, None
+                
+            bucket = MetricBucket(
+                endpoint=ep,
+                method=method,
+                bucket_minute=last_minute_dt,
+                request_count=count,
+                error_count=error_count,
+                error_rate=error_rate,
+                rps=rps,
+                p50_latency_ms=p50,
+                p95_latency_ms=p95,
+                p99_latency_ms=p99,
+                is_anomaly=is_anomaly,
+                anomaly_label=label
+            )
+            buckets.append(bucket)
+            
+        db.add_all(buckets)
+        db.commit()
+        logger.info(f"Aggregated {len(logs)} logs into {len(buckets)} MetricBuckets.")
+        
+        # Evaluate SLO alerts after aggregation
+        try:
+            from .alerts import evaluate_slo_alerts
+            evaluate_slo_alerts(db)
+        except Exception as e:
+            logger.error(f"Failed to evaluate SLO alerts: {e}")
+            
+        # Cleanup processed raw logs to save space
+        db.query(RequestLog).filter(RequestLog.timestamp < current_minute_ts).delete()
+        db.commit()
     finally:
         db.close()
 
