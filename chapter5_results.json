@@ -1,0 +1,105 @@
+{
+  "metadata": {
+    "seed": 20261125,
+    "train_points": 5000,
+    "test_points": 7000,
+    "anomaly_points": 360,
+    "fit_time_seconds": 1.864
+  },
+  "table_5_2_detection": {
+    "isolation_forest": {
+      "tp": 118,
+      "fp": 50,
+      "tn": 6590,
+      "fn": 242,
+      "precision": 0.7023809523809523,
+      "recall": 0.3277777777777778,
+      "f1": 0.446969696969697,
+      "fpr": 0.007530120481927711,
+      "mttd": 3.5
+    },
+    "fixed_threshold": {
+      "tp": 279,
+      "fp": 0,
+      "tn": 6640,
+      "fn": 81,
+      "precision": 1.0,
+      "recall": 0.775,
+      "f1": 0.8732394366197184,
+      "fpr": 0.0,
+      "mttd": 11.833333333333334
+    }
+  },
+  "table_5_3_scenarios": [
+    {
+      "scenario": "Latency injection",
+      "if_delay_min": 2,
+      "th_delay_min": 17,
+      "expected_evidence": "api_p95_latency (Rank #1)",
+      "top_ranked": [
+        "api_p95_latency",
+        "http_5xx_rate",
+        "timeout_rate"
+      ]
+    },
+    {
+      "scenario": "Elevated HTTP 5xx",
+      "if_delay_min": 14,
+      "th_delay_min": 0,
+      "expected_evidence": "http_5xx_rate (Rank #1)",
+      "top_ranked": [
+        "http_5xx_rate",
+        "memory_percent",
+        "timeout_rate"
+      ]
+    },
+    {
+      "scenario": "Timeouts",
+      "if_delay_min": 0,
+      "th_delay_min": 0,
+      "expected_evidence": "timeout_rate (Rank #1)",
+      "top_ranked": [
+        "timeout_rate",
+        "dependency_p95_latency",
+        "request_rate"
+      ]
+    },
+    {
+      "scenario": "Resource pressure",
+      "if_delay_min": 5,
+      "th_delay_min": 32,
+      "expected_evidence": "cpu_percent (Rank #1)",
+      "top_ranked": [
+        "cpu_percent",
+        "memory_percent",
+        "http_5xx_rate"
+      ]
+    },
+    {
+      "scenario": "Slow external dependency",
+      "if_delay_min": 0,
+      "th_delay_min": 22,
+      "expected_evidence": "dependency_p95_latency (Rank #1)",
+      "top_ranked": [
+        "dependency_p95_latency",
+        "api_p95_latency",
+        "memory_percent"
+      ]
+    },
+    {
+      "scenario": "Combined dependency failure",
+      "if_delay_min": 0,
+      "th_delay_min": 0,
+      "expected_evidence": "timeout_rate (Rank #1)",
+      "top_ranked": [
+        "timeout_rate",
+        "dependency_p95_latency",
+        "api_p95_latency"
+      ]
+    }
+  ],
+  "ranking_accuracy": {
+    "top1": 1.0,
+    "top3": 1.0
+  }
+}

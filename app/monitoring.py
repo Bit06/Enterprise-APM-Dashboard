@@ -195,10 +195,21 @@ def aggregate_metrics():
             p95 = durations[int(0.95 * len(durations))] if durations else 0.0
             p99 = durations[int(0.99 * len(durations))] if durations else 0.0
             
-            # Detect anomaly using ML engine
+            # Detect anomaly using Multivariate ML engine
             try:
                 from .ml_engine import detect_anomaly
-                is_anomaly, score, label = detect_anomaly(ep, p99)
+                features = {
+                    "rps": rps,
+                    "p95_latency_ms": p95,
+                    "p99_latency_ms": p99,
+                    "error_rate": error_rate,
+                    "server_cpu_percent": 25.0,
+                    "server_memory_percent": 60.0
+                }
+                anomaly_res = detect_anomaly(ep, features)
+                is_anomaly = anomaly_res[0]
+                score = anomaly_res[1]
+                label = anomaly_res[2]
             except Exception as e:
                 logger.error(f"Error detecting anomaly: {e}")
                 is_anomaly, score, label = False, 0.0, None

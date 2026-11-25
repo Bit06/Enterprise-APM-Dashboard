@@ -7,7 +7,25 @@ from fastapi import FastAPI, Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from typing import List, Dict
 
+# OpenTelemetry Tracing Setup
+try:
+    from opentelemetry import trace
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
+    from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
+    provider = TracerProvider()
+    trace.set_tracer_provider(provider)
+    tracer = trace.get_tracer("dummy-app-tracer")
+    OTEL_AVAILABLE = True
+except Exception as e:
+    tracer = None
+    OTEL_AVAILABLE = False
+
 app = FastAPI(title="Dummy Target Application")
+
+if OTEL_AVAILABLE:
+    FastAPIInstrumentor.instrument_app(app)
 
 FAULT_MODE = "normal"
 APM_INGEST_URL = "http://localhost:8000/api/ingest"
@@ -53,13 +71,21 @@ class APMMiddleware(BaseHTTPMiddleware):
         finally:
             duration_ms = (time.time() - start_time) * 1000
             
+            trace_id_str = None
+            if OTEL_AVAILABLE:
+                current_span = trace.get_current_span()
+                ctx = current_span.get_span_context()
+                if ctx and ctx.trace_id != 0:
+                    trace_id_str = f"00-{format(ctx.trace_id, '032x')}-{format(ctx.span_id, '016x')}-01"
+
             # Record metric
             metric = {
                 "endpoint": str(request.url),
                 "method": request.method,
                 "status_code": status_code,
                 "duration_ms": duration_ms,
-                "timestamp": start_time
+                "timestamp": start_time,
+                "trace_id": trace_id_str
             }
             
             global request_batch, last_flush_time

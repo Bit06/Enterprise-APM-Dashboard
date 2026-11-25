@@ -1,0 +1,62 @@
+version: "3.8"
+
+services:
+  apm-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=sqlite:///./apm_system.db
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+    volumes:
+      - ./apm_system.db:/app/apm_system.db
+    depends_on:
+      - otel-collector
+
+  dummy-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: uvicorn dummy_app:app --host 0.0.0.0 --port 8001
+    ports:
+      - "8001:8001"
+    environment:
+      - APM_INGEST_URL=http://apm-backend:8000/api/ingest
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+    depends_on:
+      - apm-backend
+      - otel-collector
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.95.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otelcol/config.yaml
+    ports:
+      - "4317:4317"   # OTLP gRPC receiver
+      - "4318:4318"   # OTLP HTTP receiver
+      - "8889:8889"   # Prometheus metrics exporter
+      - "8888:8888"   # Collector internal metrics
+    depends_on:
+      - jaeger
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.54
+    ports:
+      - "16686:16686" # Jaeger Web UI
+      - "14268:14268" # Jaeger collector HTTP
+
+  prometheus:
+    image: prom/prometheus:v2.50.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=15d
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"   # Prometheus Web UI & API
+    depends_on:
+      - otel-collector

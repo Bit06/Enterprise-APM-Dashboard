@@ -31,9 +31,20 @@ def process_telemetry():
                 if not endpoint or not endpoint.is_active:
                     continue
 
-                # Run ML anomaly detection
+                # Run multivariate ML anomaly detection
                 from .ml_engine import detect_anomaly
-                is_anomaly, anomaly_score, _ = detect_anomaly(endpoint.id, result_data.get("response_time_ms"))
+                features = {
+                    "response_time_ms": result_data.get("response_time_ms") or 0.0,
+                    "p95_latency_ms": result_data.get("response_time_ms") or 0.0,
+                    "p99_latency_ms": result_data.get("response_time_ms") or 0.0,
+                    "server_cpu_percent": result_data.get("server_cpu_percent", 25.0),
+                    "server_memory_percent": result_data.get("server_memory_percent", 60.0),
+                    "error_rate": 100.0 if not result_data.get("is_available") else 0.0,
+                    "rps": 1.0
+                }
+                anomaly_res = detect_anomaly(endpoint.id, features)
+                is_anomaly = anomaly_res[0]
+                anomaly_score = anomaly_res[1]
 
                 # 1. Save telemetry to time-series DB (simulated by SQLite here)
                 now_utc = datetime.utcnow()
