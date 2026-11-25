@@ -459,7 +459,7 @@ async function renderStatusGrid() {
   }
 
   document.getElementById("last-refresh").textContent =
-    "Last updated " + new Date().toLocaleTimeString();
+    "Live auto-refresh (5s) • Last updated " + new Date().toLocaleTimeString();
 }
 
 async function renderChart() {
@@ -918,7 +918,7 @@ async function refreshAll() {
 }
 
 refreshAll();
-setInterval(refreshAll, 15000); // poll every 15s
+setInterval(refreshAll, 5000); // poll every 5s (live auto-refresh)
 </script>
 
 </body>

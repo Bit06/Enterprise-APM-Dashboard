@@ -106,7 +106,8 @@
     <a href="/" class="back-btn">← Back</a>
     <h1 id="endpoint-name">Loading... <span id="current-status-badge" class="badge"></span></h1>
   </div>
-  <div>
+  <div style="display:flex; align-items:center; gap:12px;">
+    <span style="display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--muted);"><span style="width:8px; height:8px; border-radius:50%; background:#2ecc71; display:inline-block;"></span>Live (5s)</span>
     <select id="timeframe-select" class="time-select" onchange="loadData()">
       <option value="1" selected>Last 1 hour</option>
       <option value="24">Last 24 hours</option>
@@ -233,6 +234,7 @@
     document.body.innerHTML = "<h2 style='padding:40px;'>Error: No endpoint ID provided.</h2>";
   } else {
     loadData();
+    setInterval(loadData, 5000); // Live auto-refresh every 5 seconds
   }
 
   function formatDuration(seconds) {
@@ -421,6 +423,7 @@
         ]
       },
       options: {
+        animation: false,
         responsive: true,
         maintainAspectRatio: false,
         plugins: {
@@ -462,6 +465,7 @@
         }]
       },
       options: {
+        animation: false,
         responsive: true, maintainAspectRatio: false,
         plugins: { legend: { display: true, position: 'top', labels: { color: "#a0a0a0", usePointStyle: true, boxWidth: 8 } } },
         scales: { x: { display: false }, y: { min: 0, grid: { color: "rgba(255,255,255,0.05)" }, ticks: { color: "#a0a0a0" } } }
@@ -484,6 +488,7 @@
         }]
       },
       options: {
+        animation: false,
         responsive: true, maintainAspectRatio: false,
         plugins: { legend: { display: true, position: 'top', labels: { color: "#a0a0a0", usePointStyle: true, boxWidth: 8 } } },
         scales: { x: { display: true, grid: { color: "rgba(255,255,255,0.05)" }, ticks: { color: "#a0a0a0", maxTicksLimit: 8 } }, y: { min: 0, grid: { color: "rgba(255,255,255,0.05)" }, ticks: { color: "#a0a0a0" } } }
